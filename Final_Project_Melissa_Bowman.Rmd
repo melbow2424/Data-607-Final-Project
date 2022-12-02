@@ -1,0 +1,221 @@
+---
+title: "Data 607 Final Project"
+author: "Melissa Bowman"
+date: "2022-12-04"
+output: html_document
+---
+
+### Load libraries.
+```{r libraries, results='hide',message=FALSE}
+library(rvest)
+library(tidyverse)
+```
+
+
+### Webscraping
+Using rvest take link and read html. 
+```{r}
+# Webpage
+link = "https://shop.tcgplayer.com/price-guide/pokemon/swsh12-silver-tempest"
+link_trainer = "https://shop.tcgplayer.com/price-guide/pokemon/swsh12-silver-tempest-trainer-gallery"
+
+#Reading_html
+page = read_html(link)
+page_trainer = read_html(link_trainer)
+```
+
+
+### Pulling from html link to create first dataframe
+```{r}
+name = page %>% html_nodes(".product .cellWrapper") %>% html_text()
+price = page %>% html_nodes(".marketPrice .cellWrapper") %>% html_text()
+id = page %>% html_nodes(".number .cellWrapper") %>% html_text()
+rarity = page %>% html_nodes(".rarity .cellWrapper") %>% html_text()
+
+silver_tempest_price_guide = data.frame(name, price, id, rarity, stringsAsFactors = FALSE)
+```
+
+
+### Pulling from html link to create second dataframe
+```{r}
+name = page_trainer %>% html_nodes(".product .cellWrapper") %>% html_text()
+price = page_trainer %>% html_nodes(".marketPrice .cellWrapper") %>% html_text()
+id = page_trainer %>% html_nodes(".number .cellWrapper") %>% html_text()
+rarity = page_trainer %>% html_nodes(".rarity .cellWrapper") %>% html_text()
+
+silver_tempest_trainer_price_guide = data.frame(name, price, id, rarity, stringsAsFactors = FALSE)
+```
+
+### Merging the two data frame together to get full list of Silver Tempest
+```{r}
+silver_tempest_full = rbind(silver_tempest_price_guide, silver_tempest_trainer_price_guide)
+```
+
+### Tidying of silver_tempest_full data frames before statistical analysis.
+```{r}
+silver_tempest_full <- silver_tempest_full %>%
+  #removing dollar signs in price
+  mutate(price = str_remove(price,"\\$")) %>%
+  #remove all trailing whitespace of coulmns  
+  mutate(name = str_trim(name ,"both")) %>%
+  mutate(price = str_trim(price ,"both")) %>%
+  mutate(id = str_trim(id ,"both")) %>%
+  mutate(rarity = str_trim(rarity ,"both")) %>%
+  #remove all whitespace in id 
+  mutate(id = str_remove_all(id," ")) %>%
+  #lowercase of card rarity  
+  mutate(rarity = str_to_lower(rarity)) 
+
+# converting character type column to numeric
+silver_tempest_full <- transform(silver_tempest_full,
+                             price = as.numeric(price))
+
+# Remove blank values in id numbers
+silver_tempest_full <- silver_tempest_full[!(silver_tempest_full$id ==""),] 
+```
+
+
+```{r dtat_type, echo=FALSE, results='hide',message=FALSE}
+#Checks the data type of each column
+str(silver_tempest_full)
+```
+
+
+### Getting personal collection of silver tempest data frame collection
+
+```{r}
+df_box = read.csv('https://raw.githubusercontent.com/melbow2424/Data-606-Final-Project/main/sword_shield_silver_tempest_booster_box_sample%20-%20Sheet1.csv')
+
+df_confirm = read.csv('https://raw.githubusercontent.com/melbow2424/Data-606-Final-Project/main/sword_shield_silver_tempest_confirm_sample%20-%20Sheet1.csv')
+
+df_packs = read.csv('https://raw.githubusercontent.com/melbow2424/Data-606-Final-Project/main/sword_shield_silver_tempest_booster_packs%20-%20Sheet1.csv')
+
+#Removed a column from the data frame of the booster packs
+df_packs <- subset(df_packs, select = -c(X))
+
+# Merging the two data frame together to get full booster box sample
+df_full_collection = rbind(df_box, df_confirm, df_packs)
+```
+
+### Tidying of personal collection of silver tempest data frames before statistical analysis.
+
+```{r}
+df_full_collection <- df_full_collection %>%
+  #lowercase of card rarity  
+  mutate(card_rarity = str_to_lower(card_rarity)) %>%
+  #remove all trailing whitespace of card rarity 
+  mutate(card_rarity = str_trim(card_rarity ,"both")) %>%
+  #replace holo v rare with holo rare v
+  mutate(card_rarity = str_replace_all(card_rarity ,"holo v rare", "holo rare v")) %>%
+  #remove all whitespace in id 
+  mutate(id = str_remove_all(id," "))
+```
+
+### Joining Data Frames Together to Summarize Price Total
+
+```{r}
+#Merging data frames by id
+df_price <- merge(x = df_full_collection, y = silver_tempest_full, by = "id")
+#Removing an error card 177/195. Not in set
+df_price <- subset(df_price,id != "177/195")
+#Removing column rarity 
+df_price <- df_price %>% select(-rarity)
+```
+
+
+
+```{r}
+#str(df_price)
+
+sum(df_price$price)
+
+df_price_over <- subset(df_price,price > 0.50)
+df_price_under <- subset(df_price,price <= 0.50)
+sum(df_price_under$price)
+sum(df_price_over$price)
+```
+### Profit made from Purchasing Silver Tempest
+```{r}
+#Booster box cost
+booster_box = 125.00
+#Elite Trainer box cost (has 8 booster backs)
+elite_trainer_box = 35.99
+#Booster pack cost
+booster_pack = 3.32
+#Total spend on cards 
+card_spending = booster_box + elite_trainer_box + 22*booster_pack
+
+#Profit made
+print(sum(df_price$price)-card_spending)
+```
+
+
+### Linear Regression between Price and Card Rarity
+
+Common cards where ranked number one because they were most frequently pulled from packs. Radiant rare and trainer gallery holo rare v cards were ranked at the same number because the had the same number of times they showed in the sample size. Secret rare was ranked last because it was pulled only once out of 660 card samples. To show linearity better, I also took out an outlier card that was excessively priced from all other cards. 
+
+```{r}
+df_price %>%
+  count(card_rarity)
+df_price_rank <- df_price %>%
+  #lowercase of card rarity  
+  #mutate(card_rank = dense_rank(-desc(count(card_rarity))))
+  mutate(card_rank = case_when(card_rarity == "common" ~ 1,
+                           card_rarity == "uncommon" ~ 2,
+                           card_rarity == "rare" ~ 3,
+                           card_rarity == "holo rare" ~ 4,
+                           card_rarity == "holo rare v" ~ 5,
+                           card_rarity == "trainer gallery holo rare" ~ 6,
+                           card_rarity == "radiant rare" ~ 7,
+                           card_rarity == "trainer gallery holo rare v" ~ 7,
+                           card_rarity == "ultra rare" ~ 8,
+                           card_rarity == "holo rare vstar" ~ 9,
+                           card_rarity == "secret rare" ~ 10))
+# Removing an card outlier. 
+df_price_rank  <- subset(df_price_rank ,id != "186/195")
+```
+
+
+### Linear Regression between Price and Card Rarity Plot
+```{r}
+#plot(df_price$price, df_price$card_rarity)
+
+#ggplot(data = df_price, aes(x = price, y = card_rarity)) +
+#geom_point()
+
+ggplot(data = df_price_rank , aes(x = price, y = card_rank)) +
+  geom_jitter(shape = 1)+
+  geom_smooth(method = "lm", se = FALSE)
+```
+
+```{r}
+m_bty <- lm(card_rank~price, data=df_price_rank)
+summary(m_bty)
+```
+```{r}
+ggplot(data = m_bty, aes(x = .fitted, y = .resid)) +
+geom_jitter(shape = 1) +
+geom_hline(yintercept = 0, linetype = "dashed") +
+xlab("Fitted values") +
+ylab("Residuals")
+```
+
+
+
+```{r}
+qqnorm(m_bty$residuals)
+qqline(m_bty$residual)
+```
+
+
+```{r}
+# Don't know if this one will work
+hist(df_price_rank$card_rank)
+```
+
+
+
+
+
+
+

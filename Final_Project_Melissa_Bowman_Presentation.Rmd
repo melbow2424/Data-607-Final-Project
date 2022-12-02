@@ -1,0 +1,252 @@
+---
+title: "Data 607 Final Project: Pokemon Card Price Guide from Set Sword and Shield
+  - Silver Tempest"
+author: "Melissa Bowman"
+date: "2022-12-04"
+output:
+  slidy_presentation: default
+  ioslides_presentation: default
+---
+### Abstract
+
+For this project, the trading card website called TCG player was scraped for the price guide information from the Pokémon card set called Sword and Shield: Silver Tempest. This price guide was then used on a personal collection of all cards recorded in a csv file to determine how much capital was gained from the purchasing of this set’s cards. 
+After gaining the price total from the personal collection, an exploration of the relationship between card types and price was conducted using linear regression. This was to conclude if there was a relationship between the cards type and if the type that was rarer would dictate collectability pricing. 
+
+Load libraries.
+```{r libraries, results='hide',message=FALSE}
+library(rvest)
+library(tidyverse)
+```
+
+### Web Scraping: The Biggest Challenge
+
+Collecting and gathering was the most challenging part of this project. At first, I was using a part of the website where you could not web scrape directly because of the embedded JS. I learned that when websites use this feature and a web page is fetched outside of the browser, the html is not returned just the unexecuted JS. The work around I found was to use a proxy API called ScraperAPI. This website makes it so that you can just imbed their website and an API key with the webpage you are trying to scrape and just web scrape like normal by reading the html link. However, even though I thought I had a solid solution to acquire the data there were still issues with data collection and I’d come to find a much easier solution. On the TCG player website, I discovered that there was a price guide section in which you could directly scrape website card information. So, in the end, I no longer needed ScraperAPI to gather the data. 
+
+```{r}
+# Webpage
+link = "https://shop.tcgplayer.com/price-guide/pokemon/swsh12-silver-tempest"
+link_trainer = "https://shop.tcgplayer.com/price-guide/pokemon/swsh12-silver-tempest-trainer-gallery"
+
+#Reading_html
+page = read_html(link)
+page_trainer = read_html(link_trainer)
+```
+
+### Pulling from HTML 
+Once the html was captured from web scraping, the information needed to be parsed and extracted to create a data frame which listed price, name of cards, their card type, and the unique id of the cards. The combination of a Chrome extension to isolate the CSS selectors called SelectorGadget and the html_nodes function in the rvest package was used to call on the information needed. From there, lists were generated from the four elements needed and a data frame was created from those lists. 
+
+Create First Dataframe
+```{r}
+name = page %>% html_nodes(".product .cellWrapper") %>% html_text()
+price = page %>% html_nodes(".marketPrice .cellWrapper") %>% html_text()
+id = page %>% html_nodes(".number .cellWrapper") %>% html_text()
+rarity = page %>% html_nodes(".rarity .cellWrapper") %>% html_text()
+silver_tempest_price_guide = data.frame(name, price, id, rarity, stringsAsFactors = FALSE)
+```
+
+Create Second Dataframe
+```{r}
+name = page_trainer %>% html_nodes(".product .cellWrapper") %>% html_text()
+price = page_trainer %>% html_nodes(".marketPrice .cellWrapper") %>% html_text()
+id = page_trainer %>% html_nodes(".number .cellWrapper") %>% html_text()
+rarity = page_trainer %>% html_nodes(".rarity .cellWrapper") %>% html_text()
+silver_tempest_trainer_price_guide = data.frame(name, price, id, rarity, stringsAsFactors = FALSE)
+```
+
+### Merging and Tidying of Data Frames
+
+There were two separate listings of the Silver Tempest set that needed to be combined. Those were merged to create one completed data frame. 
+
+```{r}
+silver_tempest_full = rbind(silver_tempest_price_guide, silver_tempest_trainer_price_guide)
+```
+
+Tidying of silver_tempest_full Data Frame before Statistical Analysis.
+```{r}
+silver_tempest_full <- silver_tempest_full %>%
+  #removing dollar signs in price
+  mutate(price = str_remove(price,"\\$")) %>%
+  #remove all trailing whitespace of coulmns  
+  mutate(name = str_trim(name ,"both")) %>%
+  mutate(price = str_trim(price ,"both")) %>%
+  mutate(id = str_trim(id ,"both")) %>%
+  mutate(rarity = str_trim(rarity ,"both")) %>%
+  #remove all whitespace in id 
+  mutate(id = str_remove_all(id," ")) %>%
+  #lowercase of card rarity  
+  mutate(rarity = str_to_lower(rarity)) 
+# converting character type column to numeric
+silver_tempest_full <- transform(silver_tempest_full,price = as.numeric(price))
+# Remove blank values in id numbers
+silver_tempest_full <- silver_tempest_full[!(silver_tempest_full$id ==""),] 
+```
+
+
+### View of Data Frame
+
+<br>
+<br>
+<br>
+
+```{r}
+head(silver_tempest_full)
+```
+
+
+
+### Call of Personal Collection of Silver Tempest Card Sample
+
+After initiating the data from the website, the personal card collection data frame was uploaded. These 3 data frames were created by recording the pack number, unique id, and card type of a sample size of approximately 660 cards. These 3 data frames were then merged to create one completed data frame.
+```{r}
+df_box = read.csv('https://raw.githubusercontent.com/melbow2424/Data-606-Final-Project/main/sword_shield_silver_tempest_booster_box_sample%20-%20Sheet1.csv')
+
+df_confirm = read.csv('https://raw.githubusercontent.com/melbow2424/Data-606-Final-Project/main/sword_shield_silver_tempest_confirm_sample%20-%20Sheet1.csv')
+
+df_packs = read.csv('https://raw.githubusercontent.com/melbow2424/Data-606-Final-Project/main/sword_shield_silver_tempest_booster_packs%20-%20Sheet1.csv')
+
+#Removed a column from the data frame of the booster packs
+df_packs <- subset(df_packs, select = -c(X))
+
+# Merging the two data frame together to get full booster box sample
+df_full_collection = rbind(df_box, df_confirm, df_packs)
+```
+
+
+### Tidying of Personal Collection of Silver Tempest Data Frame before Statistical Analysis.
+
+```{r}
+df_full_collection <- df_full_collection %>%
+  #lowercase of card rarity  
+  mutate(card_rarity = str_to_lower(card_rarity)) %>%
+  #remove all trailing whitespace of card rarity 
+  mutate(card_rarity = str_trim(card_rarity ,"both")) %>%
+  #replace holo v rare with holo rare v
+  mutate(card_rarity = str_replace_all(card_rarity ,"holo v rare", "holo rare v")) %>%
+  #remove all whitespace in id 
+  mutate(id = str_remove_all(id," "))
+```
+
+```{r}
+head(df_full_collection)
+```
+
+### Joining Data Frames Together 
+Once I had the data from the web site with price information and the personal collection data, I needed to join the two data frames where the prices listed for the web site would be in the personal collection. This was done with the merge function by the id column of the two data frames. 
+```{r}
+#Merging data frames by id
+df_price <- merge(x = df_full_collection, y = silver_tempest_full, by = "id")
+#Removing an error card 177/195. Not in set
+df_price <- subset(df_price,id != "177/195")
+#Removing column rarity 
+df_price <- df_price %>% select(-rarity)
+```
+
+```{r}
+head(df_price)
+```
+
+### Summarize Price Total
+From there, the personal collection card prices could be summarized in the total amount.Also separated card less than $0.50 because these cards are sold or traded together in a bulk set. Because the price is taken from the website directly, daily changes to the cards pricing are expected. 
+
+```{r}
+#Seperating card prices less then $0.50 
+df_price_over <- subset(df_price,price > 0.50)
+df_price_under <- subset(df_price,price <= 0.50)
+```
+
+```{r}
+#Price of cards less than and equal to $0.50 
+sum(df_price_under$price)
+#Price of cards greater than to $0.50
+sum(df_price_over$price)
+#Total Price
+sum(df_price$price)
+```
+
+### Profit made from Purchasing Silver Tempest
+```{r}
+#Booster box cost
+booster_box = 125.00
+#Elite Trainer box cost (has 8 booster backs)
+elite_trainer_box = 35.99
+#Booster pack cost
+booster_pack = 3.32
+#Total spend on cards 
+card_spending = booster_box + elite_trainer_box + 22*booster_pack
+
+#Profit made
+print(sum(df_price$price)-card_spending)
+```
+
+### Linear Regression between Price and Card Rarity
+The next thing explored in this project was to see if there is a relationship between card type (rarity) and the price of the cards by using linear regression. First thing done was to take card types and rank them by the number of times the cards were pulled in the personal collection. 
+
+```{r}
+df_price %>%
+  count(card_rarity)
+```
+
+### Linear Regression between Price and Card Rarity (Cont.)
+Common cards where ranked number one because they were most frequently pulled from packs. Radiant rare and trainer gallery holo rare v cards were ranked at the same number because the had the same number of times they showed in the sample size. Secret rare was ranked last because it was pulled only once out of 660 card samples. To show linearity better, I also took out an outlier card that was excessively priced from all other cards. 
+
+```{r}
+df_price_rank <- df_price %>%
+  #lowercase of card rarity  
+  #mutate(card_rank = dense_rank(-desc(count(card_rarity))))
+  mutate(card_rank = case_when(card_rarity == "common" ~ 1,
+                           card_rarity == "uncommon" ~ 2,
+                           card_rarity == "rare" ~ 3,
+                           card_rarity == "holo rare" ~ 4,
+                           card_rarity == "holo rare v" ~ 5,
+                           card_rarity == "trainer gallery holo rare" ~ 6,
+                           card_rarity == "radiant rare" ~ 7,
+                           card_rarity == "trainer gallery holo rare v" ~ 7,
+                           card_rarity == "ultra rare" ~ 8,
+                           card_rarity == "holo rare vstar" ~ 9,
+                           card_rarity == "secret rare" ~ 10))
+# Removing an card outlier. 
+df_price_rank  <- subset(df_price_rank ,id != "186/195")
+```
+
+### Linear Regression: Price and Card Rarity Plot
+```{r, message=FALSE}
+ggplot(data = df_price_rank , aes(x = price, y = card_rank)) +
+  geom_jitter(shape = 1)+
+  geom_smooth(method = "lm", se = FALSE)
+```
+
+### Linear Model, Interpret the slope, and Calculated Residuals
+```{r}
+m_bty <- lm(card_rank~price, data=df_price_rank)
+summary(m_bty)
+```
+
+### Residual Plot
+```{r}
+ggplot(data = m_bty, aes(x = .fitted, y = .resid)) +
+geom_jitter(shape = 1) +
+geom_hline(yintercept = 0, linetype = "dashed") +
+xlab("Fitted values") +
+ylab("Residuals")
+```
+
+###  Normal Probability Plot
+```{r}
+qqnorm(m_bty$residuals)
+qqline(m_bty$residual)
+```
+
+### Linear Regression: Price and Card Rarity Outcome
+
+Plotting price verse card rank to see if any linear relationship. At a glance, it does not look like there is a linear relationship but just to double check I created a residual plot and a normal probability plot to verify. None of this show linearity, therefore it was concluded that there is no linear relationship between the card type and price. This was an anticipated outcome that there may not be a direct linear relationship between card type and price for these collectable cards. This is due to the fact that the most valuable card in the set is an ultra-rare card (not a secret rare card type) called Lugia V (Alternate Full Art) which is worth approximately $220.00. 
+
+
+![](C:/Users/Melissa/OneDrive/Documents/CUNY/Fall 2022/Data 607/Final/Pictures/Lugia Card (just card).png)
+
+### Conclusion 
+
+Using web scraping to create a pricing guide can be difficult if, the website used has embedded JavaScript in their HTML code, what is being scraped is a dynamic webpage, or if the website has anti-scraping technology. When web scraping becomes a complex exercise, it’s importance to recognize here that this the sector of software engineering known as data engineering. 
+<br>
+<br>
+As for this project, there was a direct website to scrape from and wasn’t as complex as initially suspected thus the data was easy to acquire. This made the price guide a straightforward process with R coding knowledge. As for the card type being related through price of cards, it was clear after testing the relationship with linear regression that there was no foundation for any relational commonality.  
+
